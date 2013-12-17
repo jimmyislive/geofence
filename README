@@ -1,0 +1,178 @@
+
+This is a sample project that lets you track events that ocurrent within a rectangular geofence. (events are assumed to be coming in from a taxi or something similar) with a json payload as defined in the publisher.py
+
+This project uses geohashes to efficiently compute events ocurring within a bounding box.
+
+Directory Structure
+===================
+
+    client
+        client to simulate traffic on the pub/sub channel. Use this client to send data to the server.
+    conf
+        contains all configuration files
+    geofencing 
+        base django project
+        static
+            static assets, bootstrap files etc
+       geofencing 
+            base django project structure
+            dispatch
+                django app - contains the main processing logic in views.py
+            templates
+                teplates for all the html files
+    var
+        container for run/log directories
+
+Setting up the server
+========================
+
+base server
+------------
+a. Take any base ubuntu AMI
+    install gcc (u need this for gevents)
+    sudo apt-get install python-dev (u need this for gevents)
+    sudo apt-get install libevent-dev (u need this for gevents)
+b. Install nginx (copy server section from conf/nginx.conf)
+c. Install redis
+
+If you are running a dev instance, you can skip nginx and just use gunicorn.
+
+git repo
+---------
+1. git clone this repo 
+2. You now need to set up a virtual env (for python) Inside the dir do:
+    python contrib/virtualenv-1.10.1/virtualenv.py venv --distribute
+3. Source the python env:
+    source venv/bin/activate
+4. Install all required python pkgs into your venv:
+    pip install -r requirements.txt
+5. mkdir var; mkdir var/log; mkdir var/run;mkdir var/run/supervisor; mkdir var/run/redis
+6. start supervisord:
+    supervisord -c conf/supervisord.conf
+7. You can see gunicorn/redis running:
+    supervisorctl -c conf/supervisord.conf
+
+Client
+======
+
+(venv)$ python client/publisher.py
+
+The above will send messages to the demo server (500 max clients at a time) and update messages once every second. If you want to run against your local server, alter POST_URL. Alter MAX_CLIENTS for the number of simoltaneous clients.
+
+Alternatively you could also use curl:
+
+    curl -d '{"lat": 37.800143, "lng": -122.404089, "tripId": 470578481, "event": "begin"}' http://<ec2-base-url>/trips/
+
+    the above will add a new event and you can see the count in 'How many trips are occurring right now?' updated.
+
+Core Logic
+===========
+1. client generated random events by picking up data points from a table
+these are published to AWS EC2 instance
+2. I have nginx listening on port 80 which proxies to a django service via a gunicorn(with gevent workers) service.
+3. We extract the lat/lng co-ordinates and calculate it's geohash code.
+4. This is inserted into a redis instance.
+5. The redis schema is modeled in such a way to optimize for quick search queries.
+
+Redis Schema
+=============
+
+The details of the redis schema is as follows:
+
+There are two main keys:
+
+    The following part of the schema is used to answer questions like:
+
+        1. given a bounding-box + time period queries, tell us something about trips.
+
+        keys
+        =====
+        geohash:<geohash>:days:YYYY-MM-DD:tripids => sorted set
+        geohash:<geohash>:days:YYYY-MM-DD:tot_start_counter
+        geohash:<geohash>:days:YYYY-MM-DD:tot_stop_counter
+        geohash:<geohash>:days:YYYY-MM-DD:tot_fare_counter
+        ...
+        ...
+        geohash:<geohash>:year:YYYY:weeks:00:tripids
+        geohash:<geohash>:year:YYYY:weeks:00:tot_start_counter
+        geohash:<geohash>:year:YYYY:weeks:00:tot_stop_counter
+        geohash:<geohash>:year:YYYY:weeks:00:tot_fare_counter
+        ...
+        ...
+        geohash:<geohash>:year:YYYY:weeks:48:tripids
+        geohash:<geohash>:year:YYYY:weeks:48:tot_start_counter
+        geohash:<geohash>:year:YYYY:weeks:48:tot_stop_counter
+        geohash:<geohash>:year:YYYY:weeks:48:tot_fare_counter
+        ...
+        ...
+
+        Every time an event message appears a key is updated depending on which
+        day it arrives and if it is a begin/end event. We also find out which week this day falls into (weeks start on a Monday and end on Sunday) and update the weeks counters too. This helps us in getting quick answer for queries like 1 week back, 2 weeks back etc...
+
+
+        geohash_prefixes:<geohash-prefix> => sorted set of complete geohashes
+
+        By storing all prefixes of a geohash, it lets us find the target geohashes corresponding to a geohash prefix very quickly.
+
+    The following part of the schema is used to answer questions like:
+
+        1. how many trips at the current instance in time
+        2. how many trips at any past instance in time
+
+        keys
+        =====
+        current_trips_counter => counter
+            This helps us to answer questions like 'how many trips at the current instance in time'. When a 'begin' event arrives, the counter is incremented, when a 'end' event arrives, it is decremented. The number of trips at current instant is the value of this counter
+
+        trips_counter:<utc_timestamp> => counter
+            This helps us to answer questions like 'how many trips at any given point in time'. When a 'begin' event arrives, we do a INCR on current_trips_counter and then SET the key trips_counter:<timestamp> to the return value. Similarly when a 'end' event arrives, we use a DECR operation.
+
+            since we are doing an INCR/DECR followed by a SET, we have to lock these two in a redis transaction (MULTI/EXEC)
+
+        event_times:YYYY-MM1-DD1 = <sorted set>
+        event_times:YYYY-MM1-DD2 = <sorted set>
+        event_times:YYYY-MM1-DD3 = <sorted set>
+        ...
+        ...
+
+        NOTE: the above keys get update only during 'begin'/'end' events, NOT 'update' events. (as 'update' does not start/stop a trip.)
+
+        if a user wants to find 'how many trips at time <timestamp>', we first look for trips_counter:<timestamp>. if there we return it.
+
+        However, it is possible that at <timestamp> there was no begin/end event hence there will be no key like trips_counter:<timestamp>. Thus we need to 'walk backwards' and find the first recorded counter at trips_counter:<timestamp0> where timestamp0 < timestamp. This will give us the last known counter value acceptable for <timestamp>
+
+        In order to upper bound the number of entries we have to look for, we determine which day(YYYY-MM-DD) <timestamp> corresponds to and only look in the sorted set event_times:YYYY-MM-DD. (if event_times:YYYY-MM-DD key is not there, we go to event_times:YYYY-MM-(DD-1) and so on...)
+
+        the size of the sorted set event_times:YYYY-MM-DD should be quick enough for redis to iterate through fast.
+
+    The only thing we have to remember here is to EXPIRE these keys appropriately e.g. 60/90 days so that we don't fill up the RAM.
+
+
+
+Thus when we insert data into the redis instance, we have to do a little extra work. (but we reap it's advantages later during search/retrieval time)
+
+Unit Tests
+===========
+Unit tests are provided in dispatch/tests.py to test basic functionaliy.
+
+Refrences/Credits
+==================
+1. http://en.wikipedia.org/wiki/Geohash
+2. http://openlocation.org/geohash/geohash-js/
+3. http://www.bigfastblog.com/geohash-intro
+4. http://getbootstrap.com/
+5. https://code.google.com/p/python-geohash/
+6. http://oldblog.antirez.com/post/autocomplete-with-redis.html
+7. http://geohash.gofreerange.com/
+8. http://geonames.usgs.gov/pls/gnispublic/f?p=132:2:2182913848631858::NO:RP::
+
+
+
+
+
+
+
+
+
+
+

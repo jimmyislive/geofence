@@ -1,0 +1,83 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+    <link rel="shortcut icon" href="../../docs-assets/ico/favicon.png">
+
+    <title>Uber Challenge</title>
+
+    <!-- Bootstrap core CSS -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+
+    <!-- Custom styles for this template -->
+    <link href="/static/css/grid.css" rel="stylesheet">
+
+    <!-- Just for debugging purposes. Don't actually copy this line! -->
+    <!--[if lt IE 9]><script src="../../docs-assets/js/ie8-responsive-file-warning.js"></script><![endif]-->
+
+    <!-- HTML5 shim and Respond.js IE8 support of HTML5 elements and media queries -->
+    <!--[if lt IE 9]>
+      <script src="https://oss.maxcdn.com/libs/html5shiv/3.7.0/html5shiv.js"></script>
+      <script src="https://oss.maxcdn.com/libs/respond.js/1.3.0/respond.min.js"></script>
+    <![endif]-->
+  </head>
+
+  <body>
+    <div class="container">
+
+      <div class="page-header">
+        <h1><a href="/">Uber Programming Challenge</a></h1>
+        <p class="lead">Jimmy John</p>
+      </div>
+
+      <h3>How many trips passed through a given geo-rect defined by two lat/lng points?</h3>
+
+      <div class="row-fluid">
+        {% if error %}
+        <p style="color:red">{{ error }}</p>
+        {% endif %}
+
+        <p>
+          <form method="post" action="/query/trips_passed_through/">
+            <input type="text" name="lat1" placeholder="top left latitude1" class="input-xlarge">
+            <input type="text" name="lng1" placeholder="top left longitude1" class="input-xlarge">
+            <input type="text" name="lat2" placeholder="bottom right latitude2" class="input-xlarge">
+            <input type="text" name="lng2" placeholder="bottom right longitude2" class="input-xlarge">
+            <select name="days_back">
+              <option value="0d">Today</option>
+              <option value="1d">from now upto 1 day back</option>
+              <option value="2d">from now upto 2 days back</option>
+              <option value="3d">from now upto 3 days back</option>
+              <option value="4d">from now upto 4 days back</option>
+              <option value="5d">from now upto 5 days back</option>
+              <option value="6d">from now upto 6 days back</option>
+              <option value="0w">this whole week</option>
+              <option value="1w">from now upto 1 week back</option>
+              <option value="2w">from now upto 2 weeks back</option>
+              <option value="3w">from now upto 3 weeks back</option>
+              <option value="4w">from now upto 4 weeks back</option>
+              <option value="5w">from now upto 5 weeks back</option>
+            </select>
+            <input type="submit">
+          </form>
+        </p>
+      </div>
+
+      <div>
+        <p>Totatl trips passed through ({{lat1}}, {{lng1}}) and ({{lat2}}, {{lng2}}): <b>{{ count }}</b></p>
+        <p>Time taken: <b>{{ query_time }}</b> seconds</p>
+      </div>
+
+    </div> <!-- /container -->
+
+
+    <!-- Bootstrap core JavaScript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+  </body>
+</html>

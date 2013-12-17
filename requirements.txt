@@ -1,0 +1,14 @@
+boto==2.17.0
+wsgiref==0.1.2
+distribute==0.6.34
+gevent==0.13.8
+greenlet==0.4.0
+gunicorn==0.17.2
+django==1.4.2
+meld3==0.6.10
+supervisor
+requests
+redis==2.7.2
+http://python-geohash.googlecode.com/files/python-geohash-0.3.tar.gz
+pytz
+
