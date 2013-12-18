@@ -19,7 +19,7 @@ __doc__ = """
 
 os.environ['REDIS_DB_NUM'] = '1'
 
-class UberChallenge(TestCase):
+class GeoFenceTest(TestCase):
 
     def setUp(self):
         #first seed the redis data store
